@@ -1,6 +1,8 @@
 """
 Utility functions for loading the code_x_glue_cc_defect_detection dataset
 and formatting prompts for LLM-based defect detection.
+
+Supports Llama 3.2 Instruct chat template.
 """
 
 from datasets import load_dataset
@@ -24,9 +26,9 @@ def load_defect_dataset():
     return ds["train"], ds["validation"], ds["test"]
 
 
-def format_prompt_codellama(code, examples=None):
+def format_prompt_llama32(code, examples=None):
     """
-    Format a prompt for CodeLlama-Instruct using the [INST] format.
+    Format a prompt for Llama-3.2-Instruct using the Llama 3 chat template.
 
     Args:
         code: The C/C++ function source code to analyze.
@@ -51,10 +53,44 @@ def format_prompt_codellama(code, examples=None):
     )
 
     prompt = (
-        f"[INST] <<SYS>>\n{SYSTEM_PROMPT}\n<</SYS>>\n\n"
-        f"{user_message} [/INST]"
+        f"<|begin_of_text|>"
+        f"<|start_header_id|>system<|end_header_id|>\n\n{SYSTEM_PROMPT}<|eot_id|>"
+        f"<|start_header_id|>user<|end_header_id|>\n\n{user_message}<|eot_id|>"
+        f"<|start_header_id|>assistant<|end_header_id|>\n\n"
     )
     return prompt
+
+
+def build_chat_messages(code, examples=None):
+    """
+    Build a list of chat messages (for use with tokenizer.apply_chat_template).
+
+    Args:
+        code: The C/C++ function source code to analyze.
+        examples: Optional list of (code, label) tuples for few-shot prompting.
+
+    Returns:
+        List of message dicts with 'role' and 'content'.
+    """
+    user_content = ""
+
+    if examples:
+        user_content += "Here are some examples:\n\n"
+        for i, (ex_code, ex_label) in enumerate(examples, 1):
+            user_content += f"Example {i}:\n```c\n{ex_code}\n```\nAnswer: {ex_label}\n\n"
+        user_content += "Now analyze the following function:\n"
+
+    user_content += f"```c\n{code}\n```\n"
+    user_content += (
+        "Is this function defective? "
+        "Answer with exactly 1 (defective) or 0 (safe). "
+        "Only output the number, nothing else."
+    )
+
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
 
 
 def get_few_shot_examples(train_dataset, n=3, seed=42):
@@ -85,23 +121,40 @@ def get_few_shot_examples(train_dataset, n=3, seed=42):
     return examples
 
 
-def format_for_finetuning(sample):
+def format_for_finetuning(sample, tokenizer=None):
     """
     Format a single dataset sample for SFT finetuning.
 
-    Returns a dict with 'text' field in CodeLlama instruction format.
+    If tokenizer is provided, uses apply_chat_template for proper formatting.
+    Otherwise returns a dict with 'text' field using manual template.
     """
     code = sample["func"]
-    label = sample["target"]
+    label = str(sample["target"])
 
-    user_message = (
-        f"Analyze the following C/C++ function and determine if it contains "
-        f"a security vulnerability or defect.\n\n```c\n{code}\n```\n\n"
-        f"Answer with exactly 1 (defective) or 0 (safe)."
-    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                f"Analyze the following C/C++ function and determine if it contains "
+                f"a security vulnerability or defect.\n\n```c\n{code}\n```\n\n"
+                f"Answer with exactly 1 (defective) or 0 (safe)."
+            ),
+        },
+        {"role": "assistant", "content": label},
+    ]
 
-    text = (
-        f"[INST] <<SYS>>\n{SYSTEM_PROMPT}\n<</SYS>>\n\n"
-        f"{user_message} [/INST] {label}"
-    )
+    if tokenizer is not None:
+        text = tokenizer.apply_chat_template(messages, tokenize=False)
+    else:
+        text = (
+            f"<|begin_of_text|>"
+            f"<|start_header_id|>system<|end_header_id|>\n\n{SYSTEM_PROMPT}<|eot_id|>"
+            f"<|start_header_id|>user<|end_header_id|>\n\n"
+            f"Analyze the following C/C++ function and determine if it contains "
+            f"a security vulnerability or defect.\n\n```c\n{code}\n```\n\n"
+            f"Answer with exactly 1 (defective) or 0 (safe).<|eot_id|>"
+            f"<|start_header_id|>assistant<|end_header_id|>\n\n{label}<|eot_id|>"
+        )
+
     return {"text": text}
