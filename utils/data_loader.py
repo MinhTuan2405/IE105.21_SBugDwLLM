@@ -42,7 +42,8 @@ def format_prompt_llama32(code, examples=None):
     if examples:
         user_message += "Here are some examples:\n\n"
         for i, (ex_code, ex_label) in enumerate(examples, 1):
-            user_message += f"Example {i}:\n```c\n{ex_code}\n```\nAnswer: {ex_label}\n\n"
+            truncated = _truncate_code(ex_code, max_chars=300)
+            user_message += f"Example {i}:\n```c\n{truncated}\n```\nAnswer: {ex_label}\n\n"
         user_message += "Now analyze the following function:\n"
 
     user_message += f"```c\n{code}\n```\n"
@@ -61,6 +62,13 @@ def format_prompt_llama32(code, examples=None):
     return prompt
 
 
+def _truncate_code(code, max_chars=512):
+    """Truncate code to max_chars, keeping the beginning which usually has the signature and key logic."""
+    if len(code) <= max_chars:
+        return code
+    return code[:max_chars] + "\n// ... (truncated)\n"
+
+
 def build_chat_messages(code, examples=None):
     """
     Build a list of chat messages (for use with tokenizer.apply_chat_template).
@@ -77,7 +85,8 @@ def build_chat_messages(code, examples=None):
     if examples:
         user_content += "Here are some examples:\n\n"
         for i, (ex_code, ex_label) in enumerate(examples, 1):
-            user_content += f"Example {i}:\n```c\n{ex_code}\n```\nAnswer: {ex_label}\n\n"
+            truncated = _truncate_code(ex_code, max_chars=300)
+            user_content += f"Example {i}:\n```c\n{truncated}\n```\nAnswer: {ex_label}\n\n"
         user_content += "Now analyze the following function:\n"
 
     user_content += f"```c\n{code}\n```\n"
@@ -107,8 +116,14 @@ def get_few_shot_examples(train_dataset, n=3, seed=42):
     """
     random.seed(seed)
 
-    positives = [s for s in train_dataset if s["target"] == 1]
-    negatives = [s for s in train_dataset if s["target"] == 0]
+    MAX_EXAMPLE_LEN = 800
+    positives = [s for s in train_dataset if s["target"] == 1 and len(s["func"]) <= MAX_EXAMPLE_LEN]
+    negatives = [s for s in train_dataset if s["target"] == 0 and len(s["func"]) <= MAX_EXAMPLE_LEN]
+
+    if len(positives) < n:
+        positives = [s for s in train_dataset if s["target"] == 1]
+    if len(negatives) < n:
+        negatives = [s for s in train_dataset if s["target"] == 0]
 
     n_pos = max(1, n // 2)
     n_neg = n - n_pos
