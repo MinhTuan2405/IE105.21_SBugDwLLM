@@ -116,7 +116,7 @@ def get_few_shot_examples(train_dataset, n=3, seed=42):
     selected_pos = random.sample(positives, min(n_pos, len(positives)))
     selected_neg = random.sample(negatives, min(n_neg, len(negatives)))
 
-    examples = [(s["func"], s["target"]) for s in selected_neg + selected_pos]
+    examples = [(s["func"], int(s["target"])) for s in selected_neg + selected_pos]
     random.shuffle(examples)
     return examples
 
@@ -129,7 +129,7 @@ def format_for_finetuning(sample, tokenizer=None):
     Otherwise returns a dict with 'text' field using manual template.
     """
     code = sample["func"]
-    label = str(sample["target"])
+    label = str(int(sample["target"]))
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
