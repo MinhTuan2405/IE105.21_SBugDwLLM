@@ -110,7 +110,7 @@ def get_few_shot_examples(train_dataset, n=3, seed=42):
     positives = [s for s in train_dataset if s["target"] == 1]
     negatives = [s for s in train_dataset if s["target"] == 0]
 
-    n_pos = n // 2
+    n_pos = max(1, n // 2)
     n_neg = n - n_pos
 
     selected_pos = random.sample(positives, min(n_pos, len(positives)))
